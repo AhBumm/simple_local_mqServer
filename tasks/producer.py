@@ -1,29 +1,49 @@
+"""
+Producer using the SQLite-backed queue (tasks/db.SQLiteQueue).
+
+Replace or adapt existing producer usage to call SQLiteQueue.enqueue
+so the system uses the SQLite-backed queue instead of file/JSONL-based queues.
+"""
+import argparse
 import json
 import os
-from typing import Dict
+from typing import Any
+
+from .db import SQLiteQueue, get_default_queue
 
 
-def enqueue_task(task: Dict, queue_file: str = 'tasks/queue.jsonl') -> None:
-    """
-    Persist a single task as a JSON line into tasks/queue.jsonl.
-
-    The function will create the tasks directory if it does not exist.
-    """
-    dirpath = os.path.dirname(queue_file)
-    if dirpath and not os.path.exists(dirpath):
-        os.makedirs(dirpath, exist_ok=True)
-
-    # Append a single JSON object per line
-    with open(queue_file, 'a', encoding='utf-8') as f:
-        f.write(json.dumps(task, ensure_ascii=False) + '\n')
+def send_message(topic: str, payload: Any, db_path: str = None, delay: int = 0) -> int:
+    if db_path:
+        q = SQLiteQueue(db_path)
+    else:
+        q = get_default_queue()
+    return q.enqueue(topic, payload, delay_seconds=delay)
 
 
-if __name__ == '__main__':
-    # simple smoke test
-    sample = {
-        'prompt': json.dumps({'op': 'echo', 'value': 'hello'}),
-        'priority': 1,
-        'metadata': {'prompt_id': 'test', 'create_time': '2020-01-01T00:00:00Z'}
-    }
-    enqueue_task(sample)
-    print('Wrote sample task to tasks/queue.jsonl')
+def main():
+    parser = argparse.ArgumentParser(description="Send a message to the SQLite-backed queue")
+    parser.add_argument("topic", nargs="?", default="default")
+    parser.add_argument("message", nargs="?", help="Message payload (JSON or plain text). If omitted, reads from stdin.")
+    parser.add_argument("--db", help="Path to sqlite DB (default: env SIMPLE_MQ_DB or queue.sqlite3)")
+    parser.add_argument("--delay", type=int, default=0, help="Delay in seconds before the message becomes available")
+    args = parser.parse_args()
+
+    if args.message is None:
+        import sys
+
+        payload = sys.stdin.read().strip()
+    else:
+        payload = args.message
+
+    # Try to parse as JSON; if fails keep as string
+    try:
+        parsed = json.loads(payload)
+    except Exception:
+        parsed = payload
+
+    msg_id = send_message(args.topic, parsed, db_path=args.db, delay=args.delay)
+    print(f"Enqueued message id={msg_id} topic={args.topic}")
+
+
+if __name__ == "__main__":
+    main()
