@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""
+Minimal worker example (single-consumer, demo only).
+
+- Polls tasks/queue.jsonl for tasks (one JSON object per line).
+- Records job metadata & results using db/result_store.ResultStore.
+
+Usage:
+  python worker.example
+"""
+import json
+import os
+import time
+import uuid
+from db.result_store import ResultStore
+
+QUEUE_FILE = os.getenv("QUEUE_FILE", "tasks/queue.jsonl")
+POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "1.0"))
+
+def pop_one_task(queue_file: str):
+    if not os.path.exists(queue_file):
+        return None
+    with open(queue_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    if not lines:
+        return None
+    first = lines[0]
+    remaining = lines[1:]
+    with open(queue_file, 'w', encoding='utf-8') as f:
+        f.writelines(remaining)
+    try:
+        return json.loads(first)
+    except Exception:
+        return None
+
+def process_task(task, rs: ResultStore):
+    metadata = task.get("metadata") or {}
+    if not metadata.get("prompt_id"):
+        metadata["prompt_id"] = uuid.uuid4().hex
+    job_id = metadata["prompt_id"]
+
+    # Create job record (idempotent if already created by Producer)
+    try:
+        rs.create_job(job_id, task)
+    except Exception:
+        # ignore if already exists
+        pass
+
+    rs.update_status(job_id, "processing")
+    try:
+        # Replace below with real work
+        time.sleep(0.2)
+        result = {"status": "ok", "note": "processed by example worker"}
+        rs.save_result(job_id, result)
+        rs.update_status(job_id, "finished")
+        print(f"Processed job {job_id}")
+    except Exception as e:
+        rs.save_result(job_id, {"error": str(e)})
+        rs.update_status(job_id, "failed")
+        print(f"Job {job_id} failed: {e}")
+
+def main():
+    rs = ResultStore()  # default DB path from module
+    print("Worker example started. Polling:", QUEUE_FILE)
+    try:
+        while True:
+            task = pop_one_task(QUEUE_FILE)
+            if task:
+                process_task(task, rs)
+            else:
+                time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        print("Worker stopped.")
+
+if __name__ == "__main__":
+    main()
