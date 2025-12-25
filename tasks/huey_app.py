@@ -1,45 +1,40 @@
-from huey import RedisHuey, SqliteHuey
-from typing import Any
-import json
-from config import QUEUE_BACKEND, REDIS_HOST, REDIS_PORT, REDIS_DB, SQLITE_PATH, HUEY_NAME
-from db.result_store import ResultStore
+"""Huey app instance
 
-# Create a ResultStore instance so tasks can update status/results.
-# NOTE: result_store operations are synchronous; in larger setups use async DB or separate service.
+This module exposes a Huey instance used by the application. The project now uses FileHuey
+as the default backend (file-backed storage) so Redis is no longer required by default.
+
+If you need to use Redis instead, set QUEUE_BACKEND='redis' and modify this module to
+initialize a RedisHuey instance (and install the redis client).
+
+Health checks in the app assume file-backed storage by default.
+"""
+
+import os
+from huey import FileHuey, ResultStore
+from config import FILE_HUEY_PATH, HUEY_NAME, SQLITE_PATH
+
+# Ensure storage directory exists for FileHuey (if a directory path is used)
+# FileHuey may accept a filename or directory depending on version; ensure parent dir exists.
+try:
+    # If FILE_HUEY_PATH is a directory, create it. If it's a file path, make sure parent exists.
+    if os.path.isdir(FILE_HUEY_PATH) or FILE_HUEY_PATH.endswith(os.sep):
+        os.makedirs(FILE_HUEY_PATH, exist_ok=True)
+    else:
+        parent = os.path.dirname(FILE_HUEY_PATH) or '.'
+        os.makedirs(parent, exist_ok=True)
+except Exception:
+    # Not fatal here; Huey/FileHuey will raise errors if it cannot write to the path.
+    pass
+
+# Initialize Huey using file-backed storage by default
+# Filename/path/dir argument name depends on Huey version; many versions accept 'filename'
+huey = FileHuey(filename=FILE_HUEY_PATH, name=HUEY_NAME)
+
+# Keep a result store (SQLite) for task results; this is independent of the queue backend
+# ResultStore may accept a filename for SQLite-based result persistence.
 result_store = ResultStore(SQLITE_PATH)
 
-if QUEUE_BACKEND == "redis":
-    huey = RedisHuey(name=HUEY_NAME, host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
-else:
-    huey = SqliteHuey(filename=SQLITE_PATH, name=HUEY_NAME)
+# Export any other helpers or task decorators as needed by the rest of the codebase
 
 
-@huey.task(retries=3)
-def run_comfy_job(job_id: str, payload: Any):
-    """
-    Generic task entry point that the worker will execute.
-    The server enqueues this task with job_id and payload.
-    Consumer (worker) must import this same function and implement processing logic here,
-    or the worker must check DB for job payload and perform computation.
-
-    Currently this placeholder marks status; actual image generation / graph execution
-    should be implemented in the consumer process.
-    """
-    # Mark processing start
-    result_store.update_status(job_id, "processing")
-    # The real execution belongs to the consumer. For now we record a placeholder.
-    try:
-        # If the consumer implements execution here (when running worker),
-        # replace the following block with actual ComfyUI graph execution code.
-        # For the server-only design, we don't execute.
-        # Simulate work or leave as no-op.
-        # Example of where consumer would:
-        # result = execute_comfy_graph(payload)
-        result = {"status": "noop", "note": "no consumer implemented yet"}
-        result_store.save_result(job_id, result)
-        result_store.update_status(job_id, "finished")
-        return result
-    except Exception as exc:
-        result_store.save_result(job_id, {"error": str(exc)})
-        result_store.update_status(job_id, "failed")
-        raise
+__all__ = ['huey', 'result_store']

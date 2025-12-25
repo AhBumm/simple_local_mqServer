@@ -1,35 +1,33 @@
-# simple_local_mqServer
+# Simple Local MQ Server
 
-This repository contains a reference implementation for a local ComfyUI task queue server based on Huey.
+This project provides a small local message queue server using Huey. IMPORTANT: the project
+now uses FileHuey (file-backed) as the default queue backend. This means Redis is no longer
+required by default.
 
-It provides a FastAPI HTTP API to enqueue jobs, check status, retrieve results, list jobs, cancel jobs, and perform basic health checks. The queue backend can be Redis (recommended) or SQLite for single-machine testing.
+Default behavior
+- QUEUE_BACKEND defaults to 'file'.
+- File-backed Huey stores its data at FILE_HUEY_PATH (default: ./huey_storage).
+- Result persistence uses SQLite (SQLITE_PATH) by default.
 
-Quickstart
+Switching to Redis (optional)
+If you prefer to use Redis as the backend, do the following:
 
-1. Create and activate a virtualenv:
-   - python -m venv venv
-   - source venv/bin/activate
-2. Install dependencies:
-   - pip install -r requirements.txt
-3. Configure environment variables (optional):
-   - QUEUE_BACKEND=redis
-   - REDIS_HOST=127.0.0.1
-   - REDIS_PORT=6379
-   - COMFY_QUEUE_TOKEN=yourtoken
-4. Run the API server:
-   - uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+1. Install the redis client (uncomment or add it to requirements, e.g. `redis==4.7.0`):
+   pip install redis
 
-API endpoints
+2. Set environment variable:
+   export QUEUE_BACKEND=redis
+   export REDIS_URL=redis://localhost:6379/0
 
-- POST /enqueue - Enqueue a job
-- GET /status/{job_id} - Check job status and metadata
-- GET /result/{job_id} - Retrieve job result
-- GET /jobs - List recent jobs
-- POST /cancel/{job_id} - Cancel a queued job
-- GET /health - Health check
-- GET /metrics - Basic metrics (placeholder)
+3. Modify tasks/huey_app.py to initialize a RedisHuey instance instead of FileHuey, for example:
+
+   from huey import RedisHuey
+   from config import REDIS_URL, HUEY_NAME
+
+   huey = RedisHuey(name=HUEY_NAME, url=REDIS_URL)
+
+4. Restart the application.
 
 Notes
-
-- This repository contains server-side code only. Worker/consumer implementation is intentionally omitted and will be implemented separately.
-- For production use prefer RedisHuey + an external result store (Postgres/Redis/S3 for big artifacts).
+- FileHuey is convenient for local development and environments where running Redis is not
+  desirable. For production environments with higher throughput needs, consider using Redis.
