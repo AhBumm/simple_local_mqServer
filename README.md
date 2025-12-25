@@ -33,14 +33,6 @@ simple_local_mqServer 是一个用于本地环境的轻量级消息队列服务�
 
 2. 构建或安装（根据仓库/语言）：
 
-   - 如果是 Go 项目：
-     - go build -o mqserver ./...
-     - 或直接 go run ./cmd/...
-
-   - 如果是 Node.js 项目：
-     - npm install
-     - npm start 或 node ./src/index.js
-
    - 如果是 Python 项目：
      - python3 -m venv venv
      - source venv/bin/activate
@@ -159,28 +151,3 @@ DELETE /queues/{queue}/message/{id}
 - 端口被占用：检查并释放端口或修改配置端口
 - 消息无法被消费：检查队列名、是否已正确发布、是否存在消费锁或可见性超时
 - 权限问题：确认运行用户对 data_dir 的读写权限
-
-## 开发与测试
-
-- 若想参与开发，请先阅读代码目录结构并运行项目自带的测试：
-  - 如为 Go：`go test ./...`；
-  - 如为 Node：`npm test`；
-  - 如为 Python：`pytest`。
-
-- 提交 PR 时请包含简要描述与复现步骤，并为核心功能添加或更新测试用例。
-
-## 贡献指南
-
-欢迎提交 issue 或 PR。请遵循以下几点：
-
-1. 在提交 bug 前，请先在 issue 中描述复现步骤和期望行为。
-2. 新增功能请先在 issue 中讨论实现方案。
-3. 保持提交信息简洁明了并关联 issue（若有）。
-
-## 许可证
-
-默认采用 MIT/Apache-2.0 等开源许可证（请根据仓库实际 LICENSE 文件为准）。
-
----
-
-如果你希望我把 README 内容进一步调整为特定语言（例如如果项目是 Go 或 Node），或者把 README 中的示例替换为与仓库实际实现完全一致的命令/接口，请告知我，我可以先检查仓库文件并做针对性修改。
