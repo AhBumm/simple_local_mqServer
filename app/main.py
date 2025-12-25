@@ -1,40 +1,58 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Any
-import tasks.producer as producer
+from typing import Optional, Dict, Any
+import json
+import uuid
+import datetime
+
+from tasks.producer import enqueue_task
 
 app = FastAPI(title="simple_local_mqServer")
 
-class EnqueueRequest(BaseModel):
-    """Request payload for enqueue endpoint.
-    The API enforces a prompt-only payload. "prompt" can be a string,
-    a JSON-serializable object, or any value that represents the user's prompt.
-    """
-    prompt: Any
+class TaskRequest(BaseModel):
+    prompt: str
+    priority: Optional[int] = 1
+    metadata: Optional[Dict[str, Any]] = None
 
 
-@app.post("/enqueue")
-async def enqueue(req: EnqueueRequest):
-    """Enqueue a new task.
+@app.post('/tasks')
+async def create_task(req: TaskRequest):
+    # Validate that prompt is a JSON string (i.e. string containing valid JSON)
+    try:
+        _ = json.loads(req.prompt)
+    except Exception:
+        raise HTTPException(status_code=400, detail="'prompt' must be a valid JSON string")
 
-    The endpoint requires a JSON object with a single key "prompt".
-    The producer normalizes the prompt into an internal "graph" representation
-    before persisting it to the local queue.
-    """
-    prompt = req.prompt
-    if prompt is None or (isinstance(prompt, str) and prompt.strip() == ""):
-        raise HTTPException(status_code=400, detail="'prompt' must be provided and non-empty")
+    metadata = req.metadata or {}
+    allowed_keys = {'prompt_id', 'create_time'}
+
+    # Reject any extraneous metadata keys
+    extra_keys = set(metadata.keys()) - allowed_keys
+    if extra_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"metadata may only contain the keys: {sorted(list(allowed_keys))}. unexpected: {sorted(list(extra_keys))}"
+        )
+
+    # Generate prompt_id and create_time if missing
+    if 'prompt_id' not in metadata or not metadata.get('prompt_id'):
+        metadata['prompt_id'] = uuid.uuid4().hex
+    if 'create_time' not in metadata or not metadata.get('create_time'):
+        metadata['create_time'] = datetime.datetime.utcnow().isoformat() + 'Z'
+
+    task = {
+        'prompt': req.prompt,
+        'priority': req.priority,
+        'metadata': metadata,
+    }
 
     try:
-        task_id = producer.enqueue(prompt)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        enqueue_task(task)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to enqueue task: {e}")
+        raise HTTPException(status_code=500, detail=f"failed to enqueue task: {e}")
 
-    return {"id": task_id, "status": "queued"}
+    return {'status': 'queued', 'task': task}
 
 
-@app.get("/")
-async def root():
-    return {"msg": "simple_local_mqServer running. Use POST /enqueue with { \"prompt\": ... }"}
+# If you want to run the app directly for development:
+# uvicorn app.main:app --reload --port 8000
