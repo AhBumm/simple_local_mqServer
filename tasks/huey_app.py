@@ -1,40 +1,50 @@
-"""Huey app instance
+"""
+Huey app instance using SqliteHuey as default backend.
 
-This module exposes a Huey instance used by the application. The project now uses FileHuey
-as the default backend (file-backed storage) so Redis is no longer required by default.
-
-If you need to use Redis instead, set QUEUE_BACKEND='redis' and modify this module to
-initialize a RedisHuey instance (and install the redis client).
-
-Health checks in the app assume file-backed storage by default.
+This module exposes:
+- huey: SqliteHuey instance used by producer/consumer
+- result_store: our local SQLite-backed ResultStore for job metadata/results
 """
 
 import os
-from huey import FileHuey, ResultStore
-from config import FILE_HUEY_PATH, HUEY_NAME, SQLITE_PATH
+from huey import SqliteHuey
+from typing import Any
+from config import HUEY_SQLITE_PATH, HUEY_NAME, SQLITE_PATH, QUEUE_BACKEND
+from db.result_store import ResultStore
 
-# Ensure storage directory exists for FileHuey (if a directory path is used)
-# FileHuey may accept a filename or directory depending on version; ensure parent dir exists.
-try:
-    # If FILE_HUEY_PATH is a directory, create it. If it's a file path, make sure parent exists.
-    if os.path.isdir(FILE_HUEY_PATH) or FILE_HUEY_PATH.endswith(os.sep):
-        os.makedirs(FILE_HUEY_PATH, exist_ok=True)
-    else:
-        parent = os.path.dirname(FILE_HUEY_PATH) or '.'
-        os.makedirs(parent, exist_ok=True)
-except Exception:
-    # Not fatal here; Huey/FileHuey will raise errors if it cannot write to the path.
-    pass
+# Ensure parent directory exists for SQLite file
+parent = os.path.dirname(HUEY_SQLITE_PATH) or '.'
+os.makedirs(parent, exist_ok=True)
 
-# Initialize Huey using file-backed storage by default
-# Filename/path/dir argument name depends on Huey version; many versions accept 'filename'
-huey = FileHuey(filename=FILE_HUEY_PATH, name=HUEY_NAME)
+# Instantiate Huey. We use SqliteHuey by default (file-backed SQLite).
+# If you later want Redis, change to RedisHuey(...) and adjust requirements.
+huey = SqliteHuey(filename=HUEY_SQLITE_PATH, name=HUEY_NAME)
 
-# Keep a result store (SQLite) for task results; this is independent of the queue backend
-# ResultStore may accept a filename for SQLite-based result persistence.
+# Our separate ResultStore for job metadata / result indexing (keeps same schema)
 result_store = ResultStore(SQLITE_PATH)
 
-# Export any other helpers or task decorators as needed by the rest of the codebase
 
+@huey.task(retries=3)
+def run_comfy_job(job_id: str, payload: Any):
+    """
+    Placeholder task: consumer running this will (in a real system) execute the ComfyUI graph.
+    Keep it minimal here; consumer can either execute directly here or call out to worker logic.
+    """
+    # Check DB cancellation/guard before executing
+    job = result_store.get_job(job_id)
+    if job and job.get("status") == "cancelled":
+        result_store.save_result(job_id, {"status": "cancelled", "note": "job cancelled before execution"})
+        return {"status": "cancelled"}
 
-__all__ = ['huey', 'result_store']
+    # Mark processing start
+    result_store.update_status(job_id, "processing")
+    try:
+        # Placeholder: actual ComfyUI graph execution should be implemented by the consumer.
+        result = {"status": "noop", "note": "no consumer implemented yet"}
+        result_store.save_result(job_id, result)
+        result_store.update_status(job_id, "finished")
+        return result
+    except Exception as exc:
+        result_store.save_result(job_id, {"error": str(exc)})
+        result_store.update_status(job_id, "failed")
+        raise
