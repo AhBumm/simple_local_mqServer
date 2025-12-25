@@ -1,26 +1,29 @@
-import os
+"""
+Configuration for simple_local_mqServer Huey backend.
 
-# Queue backend selection: default to file-backed Huey (FileHuey)
-# Possible values: 'file', 'redis', 'sqlite' (the app uses file by default)
-QUEUE_BACKEND = os.getenv('QUEUE_BACKEND', 'file')  # default is 'file' (FileHuey)
+Default backend changed to SqliteHuey (local Sqlite DB) for easy local development
+and zero external dependencies. To use Redis instead, change the `backend`
+value to 'redis' and provide the proper connection values.
+"""
 
-# FileHuey storage path (used when QUEUE_BACKEND is 'file')
-# This will be a directory (or a file path depending on implementation). Default is './huey_storage'
-FILE_HUEY_PATH = os.getenv('FILE_HUEY_PATH', './huey_storage')
+# Huey backend choices: 'sqlite' or 'redis'
+DEFAULT_HUEY = {
+    # Choose the backend: 'sqlite' (default) or 'redis'
+    'backend': 'sqlite',
 
-# Huey name
-HUEY_NAME = os.getenv('HUEY_NAME', 'simple_local_mq')
+    # Sqlite specific options
+    'sqlite_file': 'huey.sqlite.db',
 
-# SQLite path used for result store / local storage of results
-SQLITE_PATH = os.getenv('SQLITE_PATH', './huey_results.sqlite')
+    # Redis specific options (used when backend == 'redis')
+    'redis': {
+        'host': 'localhost',
+        'port': 6379,
+        'db': 0,
+        'results': True,
+    },
 
-# Redis settings (kept for optional Redis usage; not required by default)
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
-REDIS_DB = int(os.getenv('REDIS_DB', '0'))
-REDIS_URL = os.getenv('REDIS_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}')
-
-# Comments:
-# - The default QUEUE_BACKEND is 'file' (FileHuey). To switch to Redis, set QUEUE_BACKEND='redis'
-#   and ensure you install the redis client (uncomment/add it to requirements or install separately).
-# - FILE_HUEY_PATH controls where FileHuey stores its files. Ensure this path is writable by the app.
+    # Common options
+    'immediate': False,  # if True, run tasks synchronously (useful for tests)
+    'results': True,     # whether to store task results
+    'utc': True,
+}
