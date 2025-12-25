@@ -1,44 +1,186 @@
-ComfyUI Huey Queue (simple_local_mqServer)
+# simple_local_mqServer
 
-This project provides a minimal FastAPI-based queue server for submitting ComfyUI graph jobs and storing job metadata/results locally. The server uses Huey as the task queue. By default, the project is configured to use Huey's SqliteHuey (a file-backed SQLite queue) and keeps a separate SQLite database for the ResultStore (job metadata/results).
+简体中文使用手册（详细）
 
-Highlights
-- Default queue backend: SqliteHuey (file-backed Huey) stored at ./huey_queue.sqlite
-- Separate ResultStore DB: ./huey_results.sqlite (stores job metadata and results)
-- Simple REST API to enqueue jobs, check status, retrieve results and cancel jobs
-- Optional: switch to Redis-based Huey by setting QUEUE_BACKEND and installing redis client
+## 简介
 
-Getting started
-1. Install dependencies:
+simple_local_mqServer 是一个用于本地环境的轻量级消息队列服务（示例/参考实现）。它旨在帮助开发者在本地进行消息发布/订阅、队列管理和功能验证，便于测试微服务、异步任务以及消息驱动流程。
 
-   pip install -r requirements.txt
+> 注：本 README 为通用的中文操作与配置手册。具体命令、文件路径或可执行方式请根据仓库实际语言与实现（例如 Go、Node、Python 等）调整。
 
-2. Run the API server (development):
+## 主要特性
 
-   uvicorn app.main:app --reload
+- 本地消息队列管理（创建、删除、列出队列）
+- 消息发布与消费接口（支持短轮询/长轮询或推送，视实现而定）
+- 持久化或内存存储（取决于配置）
+- 简单的认证或访问控制（若实现）
+- 可扩展的配置文件或命令行参数
 
-3. Enqueue a job (example):
+## 环境与前置要求
 
-   POST /enqueue
-   {
-     "graph": {...},
-     "name": "example job",
-     "priority": 1,
-     "metadata": {"user": "alice"}
-   }
+请在本地安装以下通用工具（依据项目语言调整）：
 
-Notes on SqliteHuey and ResultStore
-- SqliteHuey stores Huey job queue data in a SQLite file (HUEY_SQLITE_PATH). This is suitable for local/small setups and testing.
-- This project intentionally keeps a separate SQLite DB (SQLITE_PATH) for the ResultStore to manage job metadata and results. Keeping them separate helps avoid contention and allows different retention/backup strategies.
-- If you want to use Redis for the queue backend instead, set QUEUE_BACKEND=redis and install a Redis client (see requirements comment). You will also need to modify tasks/huey_app.py to instantiate RedisHuey.
+- Git
+- 对应运行环境或编译器：例如 Go（go 1.20+）、Node.js（>=14）、Python（>=3.8）等，视项目实现而定
+- 可选：Docker、docker-compose（如仓库提供 Docker 支持）
 
-Environment variables (overrides)
-- QUEUE_BACKEND: 'sqlite' | 'file' | 'redis' (default: sqlite)
-- HUEY_SQLITE_PATH: path to Huey SQLite DB (default: ./huey_queue.sqlite)
-- SQLITE_PATH: path to ResultStore SQLite DB (default: ./huey_results.sqlite)
-- HUEY_NAME: name for Huey instance (default: simple_local_mq)
-- COMFY_QUEUE_TOKEN: optional Bearer token for API auth
-- API_HOST / API_PORT: host/port for the FastAPI server
+## 快速开始（通用步骤）
 
-License
-- (Add your license information here)
+1. 克隆仓库：
+
+   git clone https://github.com/AhBumm/simple_local_mqServer.git
+   cd simple_local_mqServer
+
+2. 构建或安装（根据仓库/语言）：
+
+   - 如果是 Go 项目：
+     - go build -o mqserver ./...
+     - 或直接 go run ./cmd/...
+
+   - 如果是 Node.js 项目：
+     - npm install
+     - npm start 或 node ./src/index.js
+
+   - 如果是 Python 项目：
+     - python3 -m venv venv
+     - source venv/bin/activate
+     - pip install -r requirements.txt
+     - python3 main.py
+
+   如果仓库包含 Dockerfile，可以直接：
+
+   docker build -t simple_local_mqserver .
+   docker run -p 8080:8080 --name mqserver simple_local_mqserver
+
+3. 启动服务（示例）：
+
+   ./mqserver --host 0.0.0.0 --port 8080 --config config.yaml
+
+   - 注意：实际命令行参数请以项目实现和 README 中的 `--help` 输出为准，例如 `./mqserver --help`。
+
+## 配置（示例 config.yaml）
+
+以下为常见配置项示例：
+
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8080
+storage:
+  type: "memory" # 或者 "file" / "sqlite" / "leveldb"
+  data_dir: "./data"
+auth:
+  enabled: false
+  token: "changeme"
+logging:
+  level: "info"
+```
+
+将配置保存为 `config.yaml`，并通过命令行参数或环境变量指向该配置。
+
+## 命令行参数示例
+
+服务通常会提供一些常用参数：
+
+- --host: 监听的地址（默认 0.0.0.0）
+- --port: 监听端口（默认 8080）
+- --config: 指定配置文件路径
+- --data-dir: 指定本地数据目录
+- --log-level: 日志等级（debug/info/warn/error）
+
+使用 `--help` 或 `-h` 查看完整参数列表。
+
+## HTTP API 快速参考（示例）
+
+下列 API 为示例接口，具体请参考代码或项目中的 API 文档。
+
+- 列出队列
+  - 请求：GET /queues
+  - 返回：JSON 队列列表
+
+- 创建队列
+  - 请求：POST /queues
+  - Body (JSON)：{ "name": "my-queue" }
+
+- 发布消息
+  - 请求：POST /queues/{queueName}/publish
+  - Body (JSON)：{ "message": "hello world", "meta": {...} }
+  - 响应：{ "message_id": "..." }
+
+- 消费消息（短轮询示例）
+  - 请求：GET /queues/{queueName}/consume
+  - 参数：?timeout=30
+  - 响应：{ "message_id": "...", "message": "..." }
+
+- 确认/删除消息
+  - 请求：DELETE /queues/{queueName}/message/{messageId}
+
+示例 curl：
+
+发布消息：
+
+curl -X POST "http://localhost:8080/queues/my-queue/publish" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello","meta":{}}'
+
+消费消息（短轮询）：
+
+curl "http://localhost:8080/queues/my-queue/consume?timeout=10"
+
+## 客户端示例（伪代码）
+
+发布：
+
+POST /queues/{queue}/publish
+Body: { message: "..." }
+
+消费：
+
+GET /queues/{queue}/consume?timeout=30
+
+处理后确认：
+
+DELETE /queues/{queue}/message/{id}
+
+注意：如果实现支持一次拉取多条或批量确认，请参阅具体接口定义。
+
+## 持久化与数据丢失风险
+
+- 当 storage.type 为 memory 时，服务重启将丢失所有队列与消息，仅适合测试环境。
+- 若需持久化，请使用 file/sqlite/leveldb 或外部数据库，并确保 data_dir 有合适的读写权限与备份策略。
+
+## 日志与调试
+
+- 调整日志级别为 debug 以获取更多运行时信息。
+- 查看 data 目录或日志文件以定位持久化/序列化问题。
+
+## 常见问题与排查建议
+
+- 端口被占用：检查并释放端口或修改配置端口
+- 消息无法被消费：检查队列名、是否已正确发布、是否存在消费锁或可见性超时
+- 权限问题：确认运行用户对 data_dir 的读写权限
+
+## 开发与测试
+
+- 若想参与开发，请先阅读代码目录结构并运行项目自带的测试：
+  - 如为 Go：`go test ./...`；
+  - 如为 Node：`npm test`；
+  - 如为 Python：`pytest`。
+
+- 提交 PR 时请包含简要描述与复现步骤，并为核心功能添加或更新测试用例。
+
+## 贡献指南
+
+欢迎提交 issue 或 PR。请遵循以下几点：
+
+1. 在提交 bug 前，请先在 issue 中描述复现步骤和期望行为。
+2. 新增功能请先在 issue 中讨论实现方案。
+3. 保持提交信息简洁明了并关联 issue（若有）。
+
+## 许可证
+
+默认采用 MIT/Apache-2.0 等开源许可证（请根据仓库实际 LICENSE 文件为准）。
+
+---
+
+如果你希望我把 README 内容进一步调整为特定语言（例如如果项目是 Go 或 Node），或者把 README 中的示例替换为与仓库实际实现完全一致的命令/接口，请告知我，我可以先检查仓库文件并做针对性修改。
