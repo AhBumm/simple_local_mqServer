@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""
+Minimal example worker for simple_local_mqServer (example only)
+
+This example demonstrates a tiny file-backed worker that consumes tasks
+written by the producer into tasks/queue.jsonl, records job metadata and
+results using the existing db/result_store.py, and is intended to be a
+separate worker implementation you can move to its own repository.
+
+Usage:
+  - (Optional) Install dependencies:
+      pip install -r requirements.txt
+  - Run the worker directly:
+      python worker.example
+
+Notes:
+  - This example is intentionally minimal and single-consumer only.
+  - For production use, replace with a robust queue like Redis/RabbitMQ
+    and a proper worker that supports concurrency and failure handling.
+"""
+import json
+import os
+import time
+import uuid
+from db.result_store import ResultStore
+
+QUEUE_FILE = os.getenv("QUEUE_FILE", "tasks/queue.jsonl")
+POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "1.0"))
+
+
+def pop_one_task(queue_file: str):
+    if not os.path.exists(queue_file):
+        return None
+
+    with open(queue_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    if not lines:
+        return None
+
+    first = lines[0]
+    remaining = lines[1:]
+
+    with open(queue_file, 'w', encoding='utf-8') as f:
+        f.writelines(remaining)
+
+    try:
+        task = json.loads(first)
+    except Exception:
+        return None
+    return task
+
+
+def process_task(task, rs: ResultStore):
+    metadata = task.get("metadata") or {}
+    if not metadata.get("prompt_id"):
+        metadata["prompt_id"] = uuid.uuid4().hex
+
+    job_id = metadata["prompt_id"]
+    rs.create_job(job_id, task)
+    rs.update_status(job_id, "processing")
+
+    try:
+        # Simulate simple processing
+        time.sleep(0.5)
+        result = {"status": "ok", "note": "processed by example worker"}
+        rs.save_result(job_id, result)
+        rs.update_status(job_id, "finished")
+        print(f"Processed job {job_id}")
+    except Exception as e:
+        rs.save_result(job_id, {"error": str(e)})
+        rs.update_status(job_id, "failed")
+        print(f"Job {job_id} failed: {e}")
+
+
+def main():
+    rs = ResultStore()
+    print("Example worker started. Polling queue:", QUEUE_FILE)
+    try:
+        while True:
+            task = pop_one_task(QUEUE_FILE)
+            if task:
+                process_task(task, rs)
+            else:
+                time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        print("Worker stopped.")
+
+
+if __name__ == "__main__":
+    main()
